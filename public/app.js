@@ -1,420 +1,284 @@
-// Super Chat GPT - Frontend Application
-class SuperChatGPT {
+class Chat {
     constructor() {
         this.messages = [];
-        this.chatHistory = this.loadChatHistory();
-        this.currentChatId = null;
-        this.isStreaming = false;
-        
-        this.initElements();
-        this.initEventListeners();
-        this.renderChatHistory();
+        this.history = JSON.parse(localStorage.getItem('chatHistory')) || [];
+        this.currentId = null;
+        this.streaming = false;
+
+        this.dom = {
+            messages: document.getElementById('messages'),
+            input: document.getElementById('userInput'),
+            send: document.getElementById('sendBtn'),
+            newChat: document.getElementById('newChat'),
+            model: document.getElementById('modelSelect'),
+            conversations: document.getElementById('conversations'),
+            emptyState: document.getElementById('emptyState')
+        };
+
+        this.init();
     }
 
-    initElements() {
-        this.chatMessages = document.getElementById('chat-messages');
-        this.messageInput = document.getElementById('message-input');
-        this.sendBtn = document.getElementById('send-btn');
-        this.newChatBtn = document.getElementById('new-chat');
-        this.clearChatBtn = document.getElementById('clear-chat');
-        this.modelSelect = document.getElementById('model-select');
-        this.historyList = document.getElementById('history-list');
-        this.statusText = document.getElementById('status-text');
-    }
+    init() {
+        this.dom.send.addEventListener('click', () => this.send());
+        this.dom.newChat.addEventListener('click', () => this.newChat());
 
-    initEventListeners() {
-        // Send message
-        this.sendBtn.addEventListener('click', () => this.sendMessage());
-        
-        // Input handling
-        this.messageInput.addEventListener('input', () => {
-            this.autoResizeTextarea();
-            this.updateSendButton();
+        this.dom.input.addEventListener('input', () => {
+            this.dom.input.style.height = 'auto';
+            this.dom.input.style.height = Math.min(this.dom.input.scrollHeight, 120) + 'px';
+            this.dom.send.disabled = !this.dom.input.value.trim() || this.streaming;
         });
 
-        this.messageInput.addEventListener('keydown', (e) => {
+        this.dom.input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                this.sendMessage();
+                this.send();
             }
         });
 
-        // New chat
-        this.newChatBtn.addEventListener('click', () => this.startNewChat());
-
-        // Clear chat
-        this.clearChatBtn.addEventListener('click', () => this.clearCurrentChat());
-
-        // Suggestions
         document.querySelectorAll('.suggestion').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const prompt = e.target.dataset.prompt;
-                this.messageInput.value = prompt;
-                this.updateSendButton();
-                this.sendMessage();
+            btn.addEventListener('click', () => {
+                this.dom.input.value = btn.dataset.text;
+                this.dom.send.disabled = false;
+                this.send();
             });
         });
+
+        this.renderHistory();
     }
 
-    autoResizeTextarea() {
-        this.messageInput.style.height = 'auto';
-        this.messageInput.style.height = Math.min(this.messageInput.scrollHeight, 150) + 'px';
-    }
+    async send() {
+        const text = this.dom.input.value.trim();
+        if (!text || this.streaming) return;
 
-    updateSendButton() {
-        const hasText = this.messageInput.value.trim().length > 0;
-        this.sendBtn.disabled = !hasText || this.isStreaming;
-    }
-
-    async sendMessage() {
-        const content = this.messageInput.value.trim();
-        if (!content || this.isStreaming) return;
-
-        // Si es un chat nuevo, crearlo
-        if (!this.currentChatId) {
-            this.currentChatId = Date.now().toString();
+        if (!this.currentId) {
+            this.currentId = Date.now().toString();
             this.messages = [];
         }
 
-        // Ocultar mensaje de bienvenida
-        const welcomeMessage = this.chatMessages.querySelector('.welcome-message');
-        if (welcomeMessage) {
-            welcomeMessage.remove();
+        if (this.dom.emptyState) {
+            this.dom.emptyState.remove();
         }
 
-        // Agregar mensaje del usuario
-        this.messages.push({ role: 'user', content });
-        this.renderMessage('user', content);
+        this.messages.push({ role: 'user', content: text });
+        this.addMessage('user', text);
 
-        // Limpiar input
-        this.messageInput.value = '';
-        this.autoResizeTextarea();
-        this.updateSendButton();
+        this.dom.input.value = '';
+        this.dom.input.style.height = 'auto';
+        this.dom.send.disabled = true;
+        this.streaming = true;
 
-        // Mostrar indicador de escritura
-        this.showTypingIndicator();
-        this.isStreaming = true;
-        this.updateStatus('Generando respuesta...');
+        const loader = this.addLoader();
 
         try {
-            const response = await this.streamChat();
-            this.messages.push({ role: 'assistant', content: response });
-            this.saveChatToHistory();
-        } catch (error) {
-            console.error('Error:', error);
-            this.showError('Error al comunicarse con la IA. Verifica tu API key.');
-        } finally {
-            this.isStreaming = false;
-            this.updateSendButton();
-            this.updateStatus('Conectado');
-        }
-    }
+            const res = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messages: this.messages,
+                    model: this.dom.model.value
+                })
+            });
 
-    async streamChat() {
-        const model = this.modelSelect.value;
-        
-        const response = await fetch('/api/chat', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                messages: this.messages,
-                model: model
-            })
-        });
+            if (!res.ok) throw new Error('Request failed');
 
-        if (!response.ok) {
-            throw new Error('Error en la respuesta del servidor');
-        }
+            loader.remove();
 
-        // Remover indicador de escritura
-        this.removeTypingIndicator();
+            const msgEl = this.addMessage('assistant', '');
+            const contentEl = msgEl.querySelector('.msg-text');
 
-        // Crear mensaje de respuesta vacío
-        const messageElement = this.createMessageElement('assistant', '');
-        this.chatMessages.appendChild(messageElement);
-        const contentElement = messageElement.querySelector('.message-text');
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let fullText = '';
 
-        let fullContent = '';
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
 
-        while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
+                const chunk = decoder.decode(value);
+                const lines = chunk.split('\n');
 
-            const chunk = decoder.decode(value);
-            const lines = chunk.split('\n');
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const data = line.slice(6);
+                        if (data === '[DONE]') continue;
 
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    const data = line.slice(6);
-                    if (data === '[DONE]') continue;
-
-                    try {
-                        const parsed = JSON.parse(data);
-                        if (parsed.content) {
-                            fullContent += parsed.content;
-                            contentElement.innerHTML = this.formatMessage(fullContent);
-                            this.highlightCode(contentElement);
-                            this.scrollToBottom();
-                        }
-                    } catch (e) {
-                        // Ignorar errores de parsing
+                        try {
+                            const parsed = JSON.parse(data);
+                            if (parsed.text) {
+                                fullText += parsed.text;
+                                contentEl.innerHTML = this.format(fullText);
+                                this.scroll();
+                            }
+                        } catch (e) {}
                     }
                 }
             }
+
+            this.messages.push({ role: 'assistant', content: fullText });
+            this.saveChat();
+
+        } catch (err) {
+            loader.remove();
+            this.addMessage('assistant', 'Error de conexión. Intenta de nuevo.');
         }
 
-        return fullContent;
+        this.streaming = false;
+        this.dom.send.disabled = !this.dom.input.value.trim();
     }
 
-    createMessageElement(role, content) {
+    addMessage(role, text) {
         const div = document.createElement('div');
         div.className = `message ${role}`;
-        
-        const avatar = role === 'user' ? '👤' : '🤖';
-        
+
+        const icon = role === 'user' ? '→' : 'N';
+
         div.innerHTML = `
-            <div class="message-avatar">${avatar}</div>
+            <div class="avatar">${icon}</div>
             <div class="message-content">
-                <div class="message-text">${this.formatMessage(content)}</div>
+                <div class="msg-text">${this.format(text)}</div>
             </div>
         `;
-        
+
+        this.dom.messages.appendChild(div);
+        this.scroll();
         return div;
     }
 
-    renderMessage(role, content) {
-        const messageElement = this.createMessageElement(role, content);
-        this.chatMessages.appendChild(messageElement);
-        this.highlightCode(messageElement);
-        this.scrollToBottom();
-    }
-
-    formatMessage(content) {
-        // Usar marked para convertir Markdown a HTML
-        if (typeof marked !== 'undefined') {
-            marked.setOptions({
-                breaks: true,
-                gfm: true,
-                highlight: function(code, lang) {
-                    if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
-                        return hljs.highlight(code, { language: lang }).value;
-                    }
-                    return code;
-                }
-            });
-            return marked.parse(content);
-        }
-        return content.replace(/\n/g, '<br>');
-    }
-
-    highlightCode(element) {
-        if (typeof hljs !== 'undefined') {
-            element.querySelectorAll('pre code').forEach((block) => {
-                hljs.highlightElement(block);
-                this.addCopyButton(block.parentElement);
-            });
-        }
-    }
-
-    addCopyButton(preElement) {
-        if (preElement.querySelector('.copy-btn')) return;
-        
-        const wrapper = document.createElement('div');
-        wrapper.className = 'code-block-wrapper';
-        preElement.parentNode.insertBefore(wrapper, preElement);
-        wrapper.appendChild(preElement);
-
-        const copyBtn = document.createElement('button');
-        copyBtn.className = 'copy-btn';
-        copyBtn.textContent = '📋 Copiar';
-        copyBtn.addEventListener('click', async () => {
-            const code = preElement.querySelector('code').textContent;
-            await navigator.clipboard.writeText(code);
-            copyBtn.textContent = '✅ Copiado!';
-            setTimeout(() => {
-                copyBtn.textContent = '📋 Copiar';
-            }, 2000);
-        });
-        wrapper.appendChild(copyBtn);
-    }
-
-    showTypingIndicator() {
-        const indicator = document.createElement('div');
-        indicator.className = 'message assistant loading-message';
-        indicator.id = 'typing-indicator';
-        indicator.innerHTML = `
-            <div class="message-avatar">🤖</div>
+    addLoader() {
+        const div = document.createElement('div');
+        div.className = 'message assistant';
+        div.innerHTML = `
+            <div class="avatar">N</div>
             <div class="message-content">
-                <div class="typing-indicator">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </div>
+                <div class="typing"><span></span><span></span><span></span></div>
             </div>
         `;
-        this.chatMessages.appendChild(indicator);
-        this.scrollToBottom();
+        this.dom.messages.appendChild(div);
+        this.scroll();
+        return div;
     }
 
-    removeTypingIndicator() {
-        const indicator = document.getElementById('typing-indicator');
-        if (indicator) {
-            indicator.remove();
-        }
-    }
+    format(text) {
+        if (!text) return '';
 
-    showError(message) {
-        this.removeTypingIndicator();
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'message assistant';
-        errorDiv.innerHTML = `
-            <div class="message-avatar">⚠️</div>
-            <div class="message-content" style="background: rgba(248, 81, 73, 0.2); border-color: var(--error-color);">
-                <div class="message-text">${message}</div>
-            </div>
-        `;
-        this.chatMessages.appendChild(errorDiv);
-        this.scrollToBottom();
-    }
-
-    scrollToBottom() {
-        this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
-    }
-
-    updateStatus(text) {
-        this.statusText.textContent = text;
-    }
-
-    startNewChat() {
-        this.currentChatId = null;
-        this.messages = [];
-        this.chatMessages.innerHTML = `
-            <div class="welcome-message">
-                <div class="welcome-icon">🤖</div>
-                <h2>¡Bienvenido a Super Chat GPT!</h2>
-                <p>Soy tu asistente de IA potenciado por múltiples modelos avanzados.</p>
-                <div class="suggestions">
-                    <button class="suggestion" data-prompt="Explícame qué es la inteligencia artificial">
-                        💡 ¿Qué es la IA?
-                    </button>
-                    <button class="suggestion" data-prompt="Escribe un poema sobre el futuro de la tecnología">
-                        ✍️ Escribe un poema
-                    </button>
-                    <button class="suggestion" data-prompt="Dame 5 ideas para proyectos de programación">
-                        💻 Ideas de proyectos
-                    </button>
-                    <button class="suggestion" data-prompt="Explica cómo funciona el machine learning de forma sencilla">
-                        🧠 Explica Machine Learning
-                    </button>
-                </div>
-            </div>
-        `;
+        // Code blocks
+        text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
         
-        // Re-attach suggestion listeners
+        // Inline code
+        text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+        
+        // Bold
+        text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        
+        // Italic
+        text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+        
+        // Lists
+        text = text.replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
+        text = text.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+        
+        // Numbered lists
+        text = text.replace(/^\s*\d+\.\s+(.+)$/gm, '<li>$1</li>');
+        
+        // Paragraphs
+        text = text.split('\n\n').map(p => {
+            if (p.startsWith('<pre>') || p.startsWith('<ul>') || p.startsWith('<li>')) {
+                return p;
+            }
+            return `<p>${p.replace(/\n/g, '<br>')}</p>`;
+        }).join('');
+
+        return text;
+    }
+
+    scroll() {
+        this.dom.messages.scrollTop = this.dom.messages.scrollHeight;
+    }
+
+    newChat() {
+        this.currentId = null;
+        this.messages = [];
+        this.dom.messages.innerHTML = `
+            <div class="empty-state" id="emptyState">
+                <h1>Nova</h1>
+                <p>¿En qué puedo ayudarte hoy?</p>
+                <div class="suggestions">
+                    <button class="suggestion" data-text="Explícame cómo funciona la recursividad en programación">
+                        Explicar recursividad
+                    </button>
+                    <button class="suggestion" data-text="Escribe una función en JavaScript para ordenar un array">
+                        Código JavaScript
+                    </button>
+                    <button class="suggestion" data-text="¿Cuáles son las mejores prácticas de CSS moderno?">
+                        CSS moderno
+                    </button>
+                    <button class="suggestion" data-text="Dame ideas para un proyecto de portfolio web">
+                        Ideas portfolio
+                    </button>
+                </div>
+            </div>
+        `;
+
         document.querySelectorAll('.suggestion').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const prompt = e.target.dataset.prompt;
-                this.messageInput.value = prompt;
-                this.updateSendButton();
-                this.sendMessage();
+            btn.addEventListener('click', () => {
+                this.dom.input.value = btn.dataset.text;
+                this.dom.send.disabled = false;
+                this.send();
             });
         });
 
-        this.renderChatHistory();
+        this.renderHistory();
     }
 
-    clearCurrentChat() {
-        if (this.currentChatId) {
-            this.chatHistory = this.chatHistory.filter(chat => chat.id !== this.currentChatId);
-            this.saveChatHistory();
-        }
-        this.startNewChat();
-    }
+    saveChat() {
+        if (!this.currentId || this.messages.length < 2) return;
 
-    saveChatToHistory() {
-        if (!this.currentChatId || this.messages.length === 0) return;
+        const title = this.messages[0].content.slice(0, 40);
+        const idx = this.history.findIndex(c => c.id === this.currentId);
 
-        const title = this.messages[0].content.substring(0, 50) + (this.messages[0].content.length > 50 ? '...' : '');
-        
-        const existingIndex = this.chatHistory.findIndex(chat => chat.id === this.currentChatId);
-        const chatData = {
-            id: this.currentChatId,
-            title: title,
-            messages: this.messages,
-            date: new Date().toLocaleDateString('es-ES'),
-            model: this.modelSelect.value
+        const chat = {
+            id: this.currentId,
+            title,
+            messages: this.messages
         };
 
-        if (existingIndex >= 0) {
-            this.chatHistory[existingIndex] = chatData;
+        if (idx >= 0) {
+            this.history[idx] = chat;
         } else {
-            this.chatHistory.unshift(chatData);
+            this.history.unshift(chat);
         }
 
-        // Limitar a 20 conversaciones
-        if (this.chatHistory.length > 20) {
-            this.chatHistory = this.chatHistory.slice(0, 20);
+        if (this.history.length > 15) {
+            this.history = this.history.slice(0, 15);
         }
 
-        this.saveChatHistory();
-        this.renderChatHistory();
+        localStorage.setItem('chatHistory', JSON.stringify(this.history));
+        this.renderHistory();
     }
 
-    loadChatHistory() {
-        try {
-            return JSON.parse(localStorage.getItem('superChatHistory')) || [];
-        } catch {
-            return [];
-        }
-    }
+    renderHistory() {
+        this.dom.conversations.innerHTML = '';
 
-    saveChatHistory() {
-        localStorage.setItem('superChatHistory', JSON.stringify(this.chatHistory));
-    }
-
-    renderChatHistory() {
-        this.historyList.innerHTML = '';
-        
-        if (this.chatHistory.length === 0) {
-            this.historyList.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.85rem;">No hay conversaciones guardadas</p>';
-            return;
-        }
-
-        this.chatHistory.forEach(chat => {
-            const item = document.createElement('div');
-            item.className = `history-item ${chat.id === this.currentChatId ? 'active' : ''}`;
-            item.innerHTML = `
-                <div class="history-item-title">${chat.title}</div>
-                <div class="history-item-date">${chat.date}</div>
-            `;
-            item.addEventListener('click', () => this.loadChat(chat.id));
-            this.historyList.appendChild(item);
+        this.history.forEach(chat => {
+            const div = document.createElement('div');
+            div.className = `conv-item ${chat.id === this.currentId ? 'active' : ''}`;
+            div.textContent = chat.title;
+            div.addEventListener('click', () => this.loadChat(chat.id));
+            this.dom.conversations.appendChild(div);
         });
     }
 
-    loadChat(chatId) {
-        const chat = this.chatHistory.find(c => c.id === chatId);
+    loadChat(id) {
+        const chat = this.history.find(c => c.id === id);
         if (!chat) return;
 
-        this.currentChatId = chatId;
+        this.currentId = id;
         this.messages = [...chat.messages];
-        this.modelSelect.value = chat.model || 'dolphin-mistral';
+        this.dom.messages.innerHTML = '';
 
-        // Renderizar mensajes
-        this.chatMessages.innerHTML = '';
-        this.messages.forEach(msg => {
-            this.renderMessage(msg.role, msg.content);
-        });
-
-        this.renderChatHistory();
+        this.messages.forEach(m => this.addMessage(m.role, m.content));
+        this.renderHistory();
     }
 }
 
-// Inicializar la aplicación
-document.addEventListener('DOMContentLoaded', () => {
-    window.superChat = new SuperChatGPT();
-});
+document.addEventListener('DOMContentLoaded', () => new Chat());

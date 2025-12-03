@@ -3,98 +3,76 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🤖 Super Chat GPT</title>
-    <link rel="stylesheet" href="styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <title>Nova</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="app-container">
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <h1>🤖 Super Chat</h1>
-                <button id="new-chat" class="btn-new-chat">
-                    <span>+</span> Nueva conversación
+    <div class="container">
+        <nav class="sidebar">
+            <div class="sidebar-top">
+                <button class="new-chat" id="newChat">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    Nuevo chat
                 </button>
+                <div class="conversations" id="conversations"></div>
             </div>
-            
-            <div class="model-selector">
-                <label for="model-select">Modelo AI:</label>
-                <select id="model-select">
-                    <option value="dolphin-mistral">🐬 Dolphin Mistral</option>
-                    <option value="llama-3.3">🦙 Llama 3.3 70B</option>
-                    <option value="qwen-2.5">🔮 Qwen 2.5 72B</option>
-                    <option value="gemini-flash">⚡ Gemini Flash 2.0</option>
-                    <option value="deepseek-chat">🔍 DeepSeek Chat</option>
-                </select>
-            </div>
-
-            <div class="chat-history" id="chat-history">
-                <h3>Historial</h3>
-                <div class="history-list" id="history-list">
-                    <!-- Historial de chats -->
+            <div class="sidebar-bottom">
+                <div class="model-select">
+                    <select id="modelSelect">
+                        <option value="mistral">Mistral 24B</option>
+                        <option value="llama">Llama 3.3 70B</option>
+                        <option value="qwen">Qwen 2.5 72B</option>
+                        <option value="gemini">Gemini 2.0</option>
+                        <option value="deepseek">DeepSeek</option>
+                    </select>
                 </div>
             </div>
+        </nav>
 
-            <div class="sidebar-footer">
-                <p>Powered by OpenRouter</p>
-            </div>
-        </aside>
-
-        <!-- Main Chat Area -->
-        <main class="chat-main">
-            <div class="chat-header">
-                <div class="status-indicator">
-                    <span class="status-dot"></span>
-                    <span id="status-text">Conectado</span>
-                </div>
-                <button id="clear-chat" class="btn-clear">🗑️ Limpiar</button>
-            </div>
-
-            <div class="chat-messages" id="chat-messages">
-                <div class="welcome-message">
-                    <div class="welcome-icon">🤖</div>
-                    <h2>¡Bienvenido a Super Chat GPT!</h2>
-                    <p>Soy tu asistente de IA potenciado por múltiples modelos avanzados.</p>
+        <main class="chat-area">
+            <div class="messages" id="messages">
+                <div class="empty-state" id="emptyState">
+                    <h1>Nova</h1>
+                    <p>¿En qué puedo ayudarte hoy?</p>
                     <div class="suggestions">
-                        <button class="suggestion" data-prompt="Explícame qué es la inteligencia artificial">
-                            💡 ¿Qué es la IA?
+                        <button class="suggestion" data-text="Explícame cómo funciona la recursividad en programación">
+                            Explicar recursividad
                         </button>
-                        <button class="suggestion" data-prompt="Escribe un poema sobre el futuro de la tecnología">
-                            ✍️ Escribe un poema
+                        <button class="suggestion" data-text="Escribe una función en JavaScript para ordenar un array">
+                            Código JavaScript
                         </button>
-                        <button class="suggestion" data-prompt="Dame 5 ideas para proyectos de programación">
-                            💻 Ideas de proyectos
+                        <button class="suggestion" data-text="¿Cuáles son las mejores prácticas de CSS moderno?">
+                            CSS moderno
                         </button>
-                        <button class="suggestion" data-prompt="Explica cómo funciona el machine learning de forma sencilla">
-                            🧠 Explica Machine Learning
+                        <button class="suggestion" data-text="Dame ideas para un proyecto de portfolio web">
+                            Ideas portfolio
                         </button>
                     </div>
                 </div>
             </div>
 
-            <div class="chat-input-container">
-                <div class="input-wrapper">
+            <div class="input-area">
+                <div class="input-container">
                     <textarea 
-                        id="message-input" 
-                        placeholder="Escribe tu mensaje aquí... (Enter para enviar, Shift+Enter para nueva línea)"
+                        id="userInput" 
+                        placeholder="Escribe un mensaje..."
                         rows="1"
                     ></textarea>
-                    <button id="send-btn" class="btn-send" disabled>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                            <path d="M22 2L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                            <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <button class="send-btn" id="sendBtn" disabled>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
                         </svg>
                     </button>
                 </div>
-                <p class="input-hint">Los modelos pueden cometer errores. Verifica la información importante.</p>
             </div>
         </main>
     </div>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

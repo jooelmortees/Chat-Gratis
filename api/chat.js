@@ -1,57 +1,54 @@
-const MODELS = {
-  'dolphin-mistral': 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
-  'llama-3.3': 'meta-llama/llama-3.3-70b-instruct:free',
-  'qwen-2.5': 'qwen/qwen-2.5-72b-instruct:free',
-  'gemini-flash': 'google/gemini-2.0-flash-exp:free',
-  'deepseek-chat': 'deepseek/deepseek-chat:free'
-};
-
 export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  const { messages, model } = req.body;
+
+  if (!messages || !Array.isArray(messages)) {
+    return res.status(400).json({ error: 'Invalid request' });
+  }
+
+  const models = {
+    'mistral': 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
+    'llama': 'meta-llama/llama-3.3-70b-instruct:free',
+    'qwen': 'qwen/qwen-2.5-72b-instruct:free',
+    'gemini': 'google/gemini-2.0-flash-exp:free',
+    'deepseek': 'deepseek/deepseek-chat:free'
+  };
+
   try {
-    const { messages, model = 'dolphin-mistral' } = req.body;
-
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ error: 'Messages array is required' });
-    }
-
-    const selectedModel = MODELS[model] || MODELS['dolphin-mistral'];
-    const apiKey = process.env.OPENROUTER_API_KEY;
-
-    if (!apiKey) {
-      return res.status(500).json({ error: 'API key not configured' });
-    }
-
-    // Llamada a OpenRouter API directamente con fetch
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': 'Bearer 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',
         'Content-Type': 'application/json',
-        'HTTP-Referer': req.headers.referer || 'https://chat-gratis.vercel.app',
-        'X-Title': 'Super Chat GPT'
+        'HTTP-Referer': 'https://nova-ai.vercel.app',
+        'X-Title': 'Nova AI'
       },
       body: JSON.stringify({
-        model: selectedModel,
+        model: models[model] || models['mistral'],
         messages: messages,
         stream: true
       })
     });
 
     if (!response.ok) {
-      const errorData = await response.text();
-      console.error('OpenRouter Error:', errorData);
-      return res.status(response.status).json({ error: `API Error: ${response.status}` });
+      const err = await response.text();
+      return res.status(500).json({ error: 'Service unavailable' });
     }
 
-    // Configurar headers para streaming
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -74,29 +71,23 @@ export default async function handler(req, res) {
             const parsed = JSON.parse(data);
             const content = parsed.choices?.[0]?.delta?.content;
             if (content) {
-              res.write(`data: ${JSON.stringify({ content })}\n\n`);
+              res.write(`data: ${JSON.stringify({ text: content })}\n\n`);
             }
-          } catch (e) {
-            // Ignorar errores de parsing
-          }
+          } catch (e) {}
         }
       }
     }
 
     res.end();
-
   } catch (error) {
-    console.error('Error en chat:', error);
-    
     if (!res.headersSent) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: 'Connection failed' });
     } else {
-      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
       res.end();
     }
   }
 }
 
 export const config = {
-  maxDuration: 60,
+  maxDuration: 60
 };
