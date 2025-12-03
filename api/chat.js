@@ -29,7 +29,7 @@ export default async function handler(req, res) {
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': 'Bearer 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',
+        'Authorization': 'Bearer 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',
         'Content-Type': 'application/json',
         'HTTP-Referer': 'https://chat-gratis.vercel.app',
         'X-Title': 'Nova'
