@@ -31,60 +31,29 @@ export default async function handler(req, res) {
       headers: {
         'Authorization': 'Bearer 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',
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://nova-ai.vercel.app',
-        'X-Title': 'Nova AI'
+        'HTTP-Referer': 'https://chat-gratis.vercel.app',
+        'X-Title': 'Nova'
       },
       body: JSON.stringify({
-        model: models[model] || models['mistral'],
-        messages: messages,
-        stream: true
+        model: models[model] || models['gemini'],
+        messages: messages
       })
     });
 
     if (!response.ok) {
-      const err = await response.text();
-      return res.status(500).json({ error: 'Service unavailable' });
+      const errorText = await response.text();
+      console.error('OpenRouter error:', errorText);
+      return res.status(500).json({ error: 'API error', details: errorText });
     }
 
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || 'Sin respuesta';
+    
+    return res.status(200).json({ text: content });
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n');
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') {
-            res.write('data: [DONE]\n\n');
-            continue;
-          }
-          try {
-            const parsed = JSON.parse(data);
-            const content = parsed.choices?.[0]?.delta?.content;
-            if (content) {
-              res.write(`data: ${JSON.stringify({ text: content })}\n\n`);
-            }
-          } catch (e) {}
-        }
-      }
-    }
-
-    res.end();
   } catch (error) {
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Connection failed' });
-    } else {
-      res.end();
-    }
+    console.error('Error:', error.message);
+    return res.status(500).json({ error: error.message });
   }
 }
 

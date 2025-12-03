@@ -3,7 +3,7 @@ class Chat {
         this.messages = [];
         this.history = JSON.parse(localStorage.getItem('chatHistory')) || [];
         this.currentId = null;
-        this.streaming = false;
+        this.loading = false;
 
         this.dom = {
             messages: document.getElementById('messages'),
@@ -25,7 +25,7 @@ class Chat {
         this.dom.input.addEventListener('input', () => {
             this.dom.input.style.height = 'auto';
             this.dom.input.style.height = Math.min(this.dom.input.scrollHeight, 120) + 'px';
-            this.dom.send.disabled = !this.dom.input.value.trim() || this.streaming;
+            this.dom.send.disabled = !this.dom.input.value.trim() || this.loading;
         });
 
         this.dom.input.addEventListener('keydown', (e) => {
@@ -48,15 +48,16 @@ class Chat {
 
     async send() {
         const text = this.dom.input.value.trim();
-        if (!text || this.streaming) return;
+        if (!text || this.loading) return;
 
         if (!this.currentId) {
             this.currentId = Date.now().toString();
             this.messages = [];
         }
 
-        if (this.dom.emptyState) {
-            this.dom.emptyState.remove();
+        const emptyState = document.getElementById('emptyState');
+        if (emptyState) {
+            emptyState.remove();
         }
 
         this.messages.push({ role: 'user', content: text });
@@ -65,7 +66,7 @@ class Chat {
         this.dom.input.value = '';
         this.dom.input.style.height = 'auto';
         this.dom.send.disabled = true;
-        this.streaming = true;
+        this.loading = true;
 
         const loader = this.addLoader();
 
@@ -79,50 +80,26 @@ class Chat {
                 })
             });
 
-            if (!res.ok) throw new Error('Request failed');
-
             loader.remove();
 
-            const msgEl = this.addMessage('assistant', '');
-            const contentEl = msgEl.querySelector('.msg-text');
-
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder();
-            let fullText = '';
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value);
-                const lines = chunk.split('\n');
-
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const data = line.slice(6);
-                        if (data === '[DONE]') continue;
-
-                        try {
-                            const parsed = JSON.parse(data);
-                            if (parsed.text) {
-                                fullText += parsed.text;
-                                contentEl.innerHTML = this.format(fullText);
-                                this.scroll();
-                            }
-                        } catch (e) {}
-                    }
-                }
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error || 'Error del servidor');
             }
 
-            this.messages.push({ role: 'assistant', content: fullText });
+            const data = await res.json();
+            const responseText = data.text || 'Sin respuesta';
+
+            this.addMessage('assistant', responseText);
+            this.messages.push({ role: 'assistant', content: responseText });
             this.saveChat();
 
         } catch (err) {
             loader.remove();
-            this.addMessage('assistant', 'Error de conexión. Intenta de nuevo.');
+            this.addMessage('assistant', 'Error: ' + err.message);
         }
 
-        this.streaming = false;
+        this.loading = false;
         this.dom.send.disabled = !this.dom.input.value.trim();
     }
 
@@ -147,6 +124,7 @@ class Chat {
     addLoader() {
         const div = document.createElement('div');
         div.className = 'message assistant';
+        div.id = 'loader';
         div.innerHTML = `
             <div class="avatar">N</div>
             <div class="message-content">
@@ -176,9 +154,6 @@ class Chat {
         // Lists
         text = text.replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
         text = text.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-        
-        // Numbered lists
-        text = text.replace(/^\s*\d+\.\s+(.+)$/gm, '<li>$1</li>');
         
         // Paragraphs
         text = text.split('\n\n').map(p => {
