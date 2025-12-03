@@ -1,5 +1,3 @@
-import { OpenRouter } from '@openrouter/sdk';
-
 const MODELS = {
   'dolphin-mistral': 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
   'llama-3.3': 'meta-llama/llama-3.3-70b-instruct:free',
@@ -20,11 +18,34 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Messages array is required' });
     }
 
-    const openrouter = new OpenRouter({
-      apiKey: process.env.OPENROUTER_API_KEY
+    const selectedModel = MODELS[model] || MODELS['dolphin-mistral'];
+    const apiKey = process.env.OPENROUTER_API_KEY;
+
+    if (!apiKey) {
+      return res.status(500).json({ error: 'API key not configured' });
+    }
+
+    // Llamada a OpenRouter API directamente con fetch
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': req.headers.referer || 'https://chat-gratis.vercel.app',
+        'X-Title': 'Super Chat GPT'
+      },
+      body: JSON.stringify({
+        model: selectedModel,
+        messages: messages,
+        stream: true
+      })
     });
 
-    const selectedModel = MODELS[model] || MODELS['dolphin-mistral'];
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error('OpenRouter Error:', errorData);
+      return res.status(response.status).json({ error: `API Error: ${response.status}` });
+    }
 
     // Configurar headers para streaming
     res.setHeader('Content-Type', 'text/event-stream');
@@ -32,26 +53,41 @@ export default async function handler(req, res) {
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
 
-    const stream = await openrouter.chat.send({
-      model: selectedModel,
-      messages: messages,
-      stream: true
-    });
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
 
-    for await (const chunk of stream) {
-      const content = chunk.choices[0]?.delta?.content;
-      if (content) {
-        res.write(`data: ${JSON.stringify({ content })}\n\n`);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n');
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          if (data === '[DONE]') {
+            res.write('data: [DONE]\n\n');
+            continue;
+          }
+          try {
+            const parsed = JSON.parse(data);
+            const content = parsed.choices?.[0]?.delta?.content;
+            if (content) {
+              res.write(`data: ${JSON.stringify({ content })}\n\n`);
+            }
+          } catch (e) {
+            // Ignorar errores de parsing
+          }
+        }
       }
     }
 
-    res.write('data: [DONE]\n\n');
     res.end();
 
   } catch (error) {
     console.error('Error en chat:', error);
     
-    // Si ya empezamos a escribir, no podemos cambiar el status
     if (!res.headersSent) {
       res.status(500).json({ error: error.message });
     } else {
